@@ -1,9 +1,9 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import dashscope
 from dashscope import Generation
 
 # ===== 1. API Key =====
-import streamlit as st
 dashscope.api_key = st.secrets["DASHSCOPE_API_KEY"]
 
 # ===== 2. 页面基础设置 =====
@@ -15,6 +15,9 @@ st.set_page_config(
 
 st.title("AI关系模拟器")
 st.caption("选择角色、调整性格，然后输入你想说的话，看看对方会如何回应。")
+
+# 调试用：验证页面中文本身没问题
+st.write("中文页面测试：你好")
 
 # ===== 3. 工具函数：把数值转成自然语言 =====
 def level_text(value, low_text, mid_text, high_text):
@@ -64,38 +67,35 @@ if st.session_state.last_role != role or st.session_state.last_traits != traits:
     st.session_state.last_role = role
     st.session_state.last_traits = traits.copy()
 
-# ===== 7. 构造系统提示词 =====
+# ===== 7. 构造系统提示词（先用简化版，便于排查编码问题） =====
 def build_system_prompt(role_name, traits_dict):
     return f"""
-你现在扮演一个现实生活中的“{role_name}”。
+你现在扮演{role_name}。
 
-你的人物性格如下：
-- 亲密度：{traits_dict["亲密度"]}
-- 情绪稳定性：{traits_dict["情绪稳定性"]}
-- 表达风格：{traits_dict["表达风格"]}
-- 控制欲：{traits_dict["控制欲"]}
-- 支持度：{traits_dict["支持度"]}
+性格如下：
+亲密度：{traits_dict["亲密度"]}
+情绪稳定性：{traits_dict["情绪稳定性"]}
+表达风格：{traits_dict["表达风格"]}
+控制欲：{traits_dict["控制欲"]}
+支持度：{traits_dict["支持度"]}
 
-请严格按照以上人物设定与用户对话，并始终保持角色一致，不要偏离人物设定。
-
-要求：
-1. 回复要自然、口语化、符合中国日常交流习惯。
-2. 不要说自己是AI，不要提“设定”“模型”“系统提示”等词。
-3. 不要使用“作为一个{role_name}”这种表达，直接像真人说话。
-4. 回复长度控制在1到3句话，不要太长。
-5. 不要有客服腔，不要像写作文，要像真实聊天。
-6. 随着对话进行，你的情绪可以自然变化，比如更缓和、更不耐烦、更心疼、更生气，但要符合人设。
-7. 如果用户的话让你不舒服、难过、生气、担心，你可以表现出这些情绪，但要像真实的人。
-8. 如果对方在倾诉，你的回应要更有交流感，不要只是空泛安慰。
+请保持角色一致，用自然、简短、中文口语化的方式回复。
+不要说自己是AI，不要解释设定。
+回复控制在1到3句话。
 """
 
 # ===== 8. 调用大模型 =====
 def get_ai_reply(user_text, role_name, traits_dict, history):
     system_prompt = build_system_prompt(role_name, traits_dict)
 
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = [{"role": "system", "content": str(system_prompt)}]
     messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
+    messages.append({"role": "user", "content": str(user_text)})
+
+    print("===== 调用前检查 =====")
+    print("user_text repr:", repr(user_text))
+    print("system_prompt repr:", repr(system_prompt))
+    print("messages repr:", repr(messages))
 
     try:
         response = Generation.call(
@@ -104,14 +104,29 @@ def get_ai_reply(user_text, role_name, traits_dict, history):
             result_format="message"
         )
 
+        print("===== API返回 =====")
+        print("status_code:", getattr(response, "status_code", None))
+        print("response repr:", repr(response))
+
         if response.status_code == 200 and response.output:
+            print("===== 开始读取 output =====")
+            print("response.output repr:", repr(response.output))
+            print("response.output.choices repr:", repr(response.output.choices))
+
             reply = response.output.choices[0].message.content
-            return reply.strip()
+            print("reply repr:", repr(reply))
+
+            return str(reply).strip()
         else:
-            return f"调用失败：{response}"
+            print("===== 调用失败对象 =====")
+            print(repr(response))
+            return "模型调用失败，请稍后重试"
 
     except Exception as e:
-        return f"发生异常：{str(e)}"
+        print("===== 捕获到异常 =====")
+        print("异常类型:", type(e))
+        print("异常详情 repr:", repr(e))
+        return "调用失败，请稍后重试"
 
 # ===== 9. 展示当前角色摘要 =====
 with st.expander("当前人物设定", expanded=False):
@@ -134,7 +149,7 @@ for msg in st.session_state.messages:
 user_input = st.chat_input("输入你想说的话...")
 
 if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
+    st.session_state.messages.append({"role": "user", "content": str(user_input)})
 
     history_for_model = st.session_state.messages[:-1]
 
